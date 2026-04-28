@@ -38,6 +38,8 @@ from einops import rearrange
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
+
 
 from ..utils.compile import no_compile
 from .gating import make_gating
@@ -434,7 +436,9 @@ class StreamingMultiheadAttention(StreamingModule[_MHAState]):
                 attn_bias = attn_bias & (delta < self.context)
         else:
             attn_bias = None
-        x = F.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
+        
+        with sdpa_kernel(SDPBackend.MATH):
+            x = F.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
 
         x = rearrange(x, "b h t d -> b t (h d)")
         if self.weights_per_step:
