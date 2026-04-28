@@ -52,28 +52,30 @@ from .utils.logging import setup_logger, ColorizedLog
 
 
 logger = setup_logger(__name__)
-DeviceString = Literal["cuda"] | Literal["cpu"] #| Literal["mps"]
+DeviceString = Literal["xpu"] | Literal["cpu"] #| Literal["mps"]
 
 def torch_auto_device(requested: Optional[DeviceString] = None) -> torch.device:
     """Return a torch.device based on the requested string or availability."""
     if requested is not None:
         return torch.device(requested)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
+    if torch.xpu.is_available():
+        print('XPU in use')
+        return torch.device("xpu")
     #elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     #    return torch.device("mps")
+    print('NO XPU in use')
     return torch.device("cpu")
 
 
 def seed_all(seed):
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)  # for multi-GPU setups
+    if torch.xpu.is_available():
+        torch.xpu.manual_seed(seed)
+        torch.xpu.manual_seed_all(seed)  # for multi-GPU setups
     random.seed(seed)
     np.random.seed(seed)
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = False
+    #torch.backends.cudnn.deterministic = False
+    #torch.backends.cudnn.benchmark = False
 
 
 def wrap_with_system_tags(text: str) -> str:
@@ -128,8 +130,8 @@ class ServerState:
                 _ = self.mimi.decode(tokens[:, 1:9])
                 _ = self.other_mimi.decode(tokens[:, 1:9])
 
-        if self.device.type == 'cuda':
-            torch.cuda.synchronize()
+        #if self.device.type == 'xpu':
+        #    torch.xpu.synchronize()
 
 
     async def handle_chat(self, request):
@@ -369,7 +371,7 @@ def main():
     parser.add_argument("--hf-repo", type=str, default=loaders.DEFAULT_REPO,
                         help="HF repo to look into, defaults PersonaPlex. "
                              "Use this to select a different pre-trained model.")
-    parser.add_argument("--device", type=str, default="cuda", help="Device on which to run, defaults to 'cuda'.")
+    parser.add_argument("--device", type=str, default="xpu", help="Device on which to run, defaults to 'xpu'.")
     parser.add_argument("--cpu-offload", action="store_true",
                         help="Offload LM model layers to CPU when GPU memory is insufficient. "
                              "Requires 'accelerate' package.")

@@ -31,7 +31,7 @@ from ..quantization import (
 )
 from ..modules.resample import ConvDownsample1d, ConvTrUpsample1d
 from ..modules.streaming import StreamingModule, State
-from ..utils.compile import no_compile, CUDAGraphed
+from ..utils.compile import no_compile, XPUGraphed
 
 
 logger = logging.getLogger()
@@ -92,8 +92,8 @@ class CompressionModel(StreamingModule[State]):
 
 @dataclass
 class _MimiState:
-    graphed_tr_enc: CUDAGraphed | None
-    graphed_tr_dec: CUDAGraphed | None
+    graphed_tr_enc: XPUGraphed | None
+    graphed_tr_dec: XPUGraphed | None
 
     def reset(self):
         pass
@@ -221,13 +221,13 @@ class MimiModel(CompressionModel[_MimiState]):
 
     def _init_streaming_state(self, batch_size: int) -> _MimiState:
         device = next(self.parameters()).device
-        disable = device.type != 'cuda'
+        disable = device.type != 'xpu'
         graphed_tr_dec = None
         graphed_tr_enc = None
         if self.encoder_transformer is not None:
-            graphed_tr_enc = CUDAGraphed(self.encoder_transformer, disable=disable)
+            graphed_tr_enc = XPUGraphed(self.encoder_transformer, disable=disable)
         if self.decoder_transformer is not None:
-            graphed_tr_dec = CUDAGraphed(self.decoder_transformer, disable=disable)
+            graphed_tr_dec = XPUGraphed(self.decoder_transformer, disable=disable)
         return _MimiState(graphed_tr_enc, graphed_tr_dec)
 
     @property

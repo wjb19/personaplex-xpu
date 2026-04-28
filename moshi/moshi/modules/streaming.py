@@ -573,15 +573,15 @@ class RawStreamingConvTranspose1d(
 def test():
     torch.manual_seed(1234)
     device = "cpu"
-    if torch.cuda.is_available():
-        # Avoid the cuda optimizations that would take place on single precision
+    if torch.xpu.is_available():
+        # Avoid the xpu optimizations that would take place on single precision
         # floats for convolutions.
-        torch.backends.cudnn.enabled = True
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cuda.matmul.allow_tf32 = False
-        torch.backends.cudnn.allow_tf32 = False
-        device = "cuda:0"
+        #torch.backends.cudnn.enabled = True
+        #torch.backends.cudnn.benchmark = False
+        #torch.backends.cudnn.deterministic = True
+        torch.backends.xpu.matmul.allow_tf32 = False
+        #torch.backends.cudnn.allow_tf32 = False
+        device = "xpu:0"
 
     kernel_sizes = [1, 3, 4, 8, 15, 16]
     strides = [1, 2, 3, 4, 5, 6, 7, 8, 9]

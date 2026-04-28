@@ -42,7 +42,7 @@ import torch
 from tqdm.auto import tqdm
 
 from ..utils.sampling import sample_token
-from ..utils.compile import CUDAGraphed
+from ..utils.compile import XPUGraphed
 from ..modules.streaming import StreamingStateDict, StreamingContainer, StreamingModule, load_streaming_state
 from ..modules.transformer import (
     StreamingTransformer,
@@ -557,9 +557,9 @@ class _LMGenState:
     cache: torch.Tensor
     provided: torch.Tensor
     initial: torch.Tensor
-    graphed_main: CUDAGraphed
-    graphed_embeddings: CUDAGraphed
-    graphed_depth: CUDAGraphed
+    graphed_main: XPUGraphed
+    graphed_embeddings: XPUGraphed
+    graphed_depth: XPUGraphed
     offset: int = 0
 
     def reset(self):
@@ -690,7 +690,7 @@ class LMGen(StreamingModule[_LMGenState]):
         self.max_delay = max(
             lm_model.delays
         )  # with delays, we need to generate a few more time steps.
-        self.delays_cuda = torch.tensor(
+        self.delays_xpu = torch.tensor(
             lm_model.delays, device=lm_model.device, dtype=torch.long
         )
         self.save_voice_prompt_embeddings = save_voice_prompt_embeddings
@@ -715,11 +715,11 @@ class LMGen(StreamingModule[_LMGenState]):
             dtype=torch.bool
         )
 
-        disable = lm_model.device.type != 'cuda'
+        disable = lm_model.device.type != 'xpu'
         # disable = True # DEBUG
-        graphed_main = CUDAGraphed(lm_model.forward_codes, disable=disable)
-        graphed_embeddings = CUDAGraphed(lm_model.forward_embeddings, disable=disable)
-        graphed_depth = CUDAGraphed(self.depformer_step, disable=disable)
+        graphed_main = XPUGraphed(lm_model.forward_codes, disable=disable)
+        graphed_embeddings = XPUGraphed(lm_model.forward_embeddings, disable=disable)
+        graphed_depth = XPUGraphed(self.depformer_step, disable=disable)
 
         return _LMGenState(cache, provided, initial, graphed_main, graphed_embeddings, graphed_depth)
     
@@ -941,9 +941,9 @@ class LMGen(StreamingModule[_LMGenState]):
         
         B = state.cache.shape[0]
         CT = state.cache.shape[2]
-        gen_delays_cuda = self.delays_cuda[: lm_model.dep_q + 1]
+        gen_delays_xpu = self.delays_xpu[: lm_model.dep_q + 1]
         index = (
-            ((state.offset - self.max_delay + gen_delays_cuda) % CT)
+            ((state.offset - self.max_delay + gen_delays_xpu) % CT)
             .view(1, -1, 1)
             .expand(B, -1, 1)
         )

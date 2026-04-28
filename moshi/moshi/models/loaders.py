@@ -333,8 +333,8 @@ def _get_moshi_lm_with_offload(
     # Determine target device
     dev = torch.device(device) if isinstance(device, str) else device
 
-    if dev.type != "cuda":
-        # If not using CUDA, just move to the target device without offloading
+    if dev.type != "xpu":
+        # If not using XPU, just move to the target device without offloading
         logger.info(f"CPU offload requested but device is {dev}, skipping offload")
         model.to(dev)
         model.eval()
@@ -349,7 +349,7 @@ def _get_moshi_lm_with_offload(
     )
 
     # Log the device distribution
-    gpu_layers = sum(1 for v in device_map.values() if v == 0 or v == "cuda:0")
+    gpu_layers = sum(1 for v in device_map.values() if v == 0 or v == "xpu:0")
     cpu_layers = sum(1 for v in device_map.values() if v == "cpu")
     logger.info(f"Device map: {gpu_layers} modules on GPU, {cpu_layers} modules on CPU")
 

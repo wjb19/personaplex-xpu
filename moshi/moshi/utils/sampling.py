@@ -129,10 +129,10 @@ def sample_token(
 if __name__ == "__main__":
     torch.manual_seed(1234)
     device = "cpu"
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = False
-        torch.backends.cudnn.allow_tf32 = False
-        device = "cuda:0"
+    if torch.xpu.is_available():
+        #torch.backends.xpu.matmul.allow_tf32 = False
+        #torch.backends.cudnn.allow_tf32 = False
+        device = "xpu:0"
 
     ps = torch.tensor([5.0, 2.0, 12.0, 6.0, 8.0, 1.0, 0.0, 4.0], device=device)
     cnts = torch.zeros(ps.shape, dtype=torch.long, device=device)

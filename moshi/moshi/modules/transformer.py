@@ -24,7 +24,7 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Transformer model, with streaming support, + CUDA Graphable.
+Transformer model, with streaming support, + XPU Graphable.
 Optimized for inference.
 
 See `StreamingTransformer` for more information.
@@ -246,7 +246,7 @@ class RingKVCache:
         num_heads: int,
         dim_per_head: int,
         capacity: int,
-        device: torch.device = torch.device("cuda"),
+        device: torch.device = torch.device("xpu"),
         dtype: torch.dtype = torch.bfloat16,
     ):
         self.capacity = capacity
@@ -606,7 +606,7 @@ class StreamingTransformerLayer(StreamingModule[_LayerState]):
 
     def forward(self, x: torch.Tensor):
         with ExitStack() as stack:
-            if x.device.type != 'cuda':
+            if x.device.type != 'xpu':
                 stack.enter_context(no_compile())
             x = self._sa_block(x)
             x = self._ff_block(x)

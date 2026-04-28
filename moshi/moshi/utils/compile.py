@@ -27,7 +27,7 @@
 Provides some extra utilities around torch compile, in particular with a way
 to fully deactivate it easily with a context manager.
 Provides a simple activation checkpointing that is compatible with FSDP and torch compile.
-Finally, provides some utilities for CUDA graphing functions.
+Finally, provides some utilities for XPU graphing functions.
 """
 from contextlib import contextmanager
 from functools import wraps
@@ -36,7 +36,7 @@ import os
 import typing as tp
 
 import torch
-from torch import cuda
+from torch import xpu
 
 
 _compile_disabled: bool = False
@@ -166,55 +166,55 @@ def simple_checkpoint(module: torch.nn.Module, *args, **kwargs):
     return Checkpoint.apply(module, *new_args)
 
 
-_in_cuda_graph = False
-_disable_cuda_graph = False
+_in_xpu_graph = False
+_disable_xpu_graph = False
 
 
-def in_cuda_graph() -> bool:
-    """Indicate whether we are in a function that is CUDA Graphed (or will be soon)."""
-    return _in_cuda_graph
+def in_xpu_graph() -> bool:
+    """Indicate whether we are in a function that is XPU Graphed (or will be soon)."""
+    return _in_xpu_graph
 
 
 @contextmanager
-def _set_in_cuda_graph():
-    global _in_cuda_graph
-    assert not _in_cuda_graph
-    _in_cuda_graph = True
+def _set_in_xpu_graph():
+    global _in_xpu_graph
+    assert not _in_xpu_graph
+    _in_xpu_graph = True
     try:
         yield
     finally:
-        _in_cuda_graph = False
+        _in_xpu_graph = False
 
 
-def _is_cuda_graph_enabled() -> bool:
-    if _disable_cuda_graph:
+def _is_xpu_graph_enabled() -> bool:
+    if _disable_xpu_graph:
         return False
-    no_cuda_graph = os.environ.get("NO_CUDA_GRAPH", "")
-    if no_cuda_graph.lower() not in {"0", "no", "n", ""}:
+    no_xpu_graph = os.environ.get("NO_XPU_GRAPH", "")
+    if no_xpu_graph.lower() not in {"0", "no", "n", ""}:
         return False
     return True
 
 
 @contextmanager
-def no_cuda_graph():
-    """Deactivate CUDA Graphing for all the calls in this context manager."""
-    global _disable_cuda_graph
-    old_value = _disable_cuda_graph
-    _disable_cuda_graph = True
+def no_xpu_graph():
+    """Deactivate XPU Graphing for all the calls in this context manager."""
+    global _disable_xpu_graph
+    old_value = _disable_xpu_graph
+    _disable_xpu_graph = True
     try:
         yield
     finally:
-        _disable_cuda_graph = old_value
+        _disable_xpu_graph = old_value
 
 
-class CUDAGraphed:
-    """Allow simple CUDA Graphing of a function.
+class XPUGraphed:
+    """Allow simple XPU Graphing of a function.
 
     Args:
         func: callable, taking any number of arguments. Its tensors arguments should
             be top level args, not nested in structures (tuples, dicts, etc). Keyword
             arguments are NOT supported for simplicity.
-        warmup_steps: how many call to make normally before CUDA Graphing. In particular, this
+        warmup_steps: how many call to make normally before XPU Graphing. In particular, this
             allows torch.compiled functions to get properly compiled.
         disabled: if True, just call the func directly, useful to quickly deactivate on CPU.
     """
@@ -223,12 +223,12 @@ class CUDAGraphed:
         self.func = func
         self.warmup_steps = warmup_steps
         self.disable = disable
-        self._graph: cuda.CUDAGraph | None = None
+        self._graph: xpu.XPUGraph | None = None
         self._output: tuple | None = None
         self._args: tuple | None = None
 
     def reset(self, warmup_steps: int = 0) -> None:
-        """Reset the state, meaning the next call we get CUDA Graphed again. Useful if some
+        """Reset the state, meaning the next call we get XPU Graphed again. Useful if some
         shapes have changed, or external state (e.g. KVCache) has changed."""
         self.warmup_steps = warmup_steps
         self._graph = None
@@ -241,7 +241,7 @@ class CUDAGraphed:
     def __call__(self, *args, **kwargs) -> tp.Any:
         if kwargs:
             raise RuntimeError("Named arguments not supported for now.")
-        if self.disable or not _is_cuda_graph_enabled() or in_cuda_graph():
+        if self.disable or not _is_xpu_graph_enabled() or in_xpu_graph():
             return self.func(*args, **kwargs)
 
         def _clone_tensors(args: tuple) -> tuple:
@@ -255,7 +255,7 @@ class CUDAGraphed:
         def _match_values_copy_tensors(args: tuple, target_args: tuple) -> None:
             if len(args) != len(target_args):
                 raise ValueError(
-                    f"Expected {len(target_args)}, but got {args} for CUDA Graphed function."
+                    f"Expected {len(target_args)}, but got {args} for XPU Graphed function."
                 )
             for idx, (source, target) in enumerate(zip(args, target_args)):
                 if isinstance(target, torch.Tensor):
@@ -278,14 +278,14 @@ class CUDAGraphed:
                             f"Argument #{idx} changed value from {target} to {source}."
                         )
 
-        with _set_in_cuda_graph():
-            # Prevent any one under us to try and CUDA Graph things.
+        with _set_in_xpu_graph():
+            # Prevent any one under us to try and XPU Graph things.
             if self._graph is None:
                 if self.warmup_steps <= 0:
-                    self._graph = cuda.CUDAGraph()
+                    self._graph = xpu.XPUGraph()
                     # Making a copy just to ensure those are not used else where.
                     self._args = _clone_tensors(args)
-                    with cuda.graph(self._graph):
+                    with xpu.graph(self._graph):
                         self._output = self.func(*self._args)
                     # At this point nothing really happened, so we have to make it run for real.
                     self._graph.replay()
@@ -301,8 +301,8 @@ class CUDAGraphed:
                 return self._output
 
 
-def cuda_graph(func: tp.Callable, warmup_steps: int = 1):
-    """Just calls `CUDAGraphed` on the given function."""
-    if not _is_cuda_graph_enabled():
+def xpu_graph(func: tp.Callable, warmup_steps: int = 1):
+    """Just calls `XPUGraphed` on the given function."""
+    if not _is_xpu_graph_enabled():
         return func
-    return CUDAGraphed(func, warmup_steps)
+    return XPUGraphed(func, warmup_steps)

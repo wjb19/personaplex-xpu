@@ -95,7 +95,7 @@ class ResidualVectorQuantizer(BaseQuantizer):
         self.generator = None
         if generator_seed is not None:
             self.generator = torch.Generator(
-                device="cuda" if torch.cuda.is_available() else "cpu"
+                device="xpu" if torch.xpu.is_available() else "cpu"
             )
             self.generator.manual_seed(generator_seed)
         if self.input_dimension == self.dimension and not force_projection:

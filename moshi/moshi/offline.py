@@ -29,7 +29,7 @@ Offline inference entrypoint for PersonaPlex that mirrors server.py behavior wit
 
 High-level flow:
 - Load Mimi encoders/decoders, Moshi LM, and tokenizer (same as server.py)
-- Warmup to initialize CUDA graphs and streaming state
+- Warmup to initialize XPU graphs and streaming state
 - Prompt phase: load system text tokens and a voice prompt WAV (agent side)
 - Streaming-like phase: feed user audio frames from a WAV file into the "input" channels,
   autoregressively sample text + agent audio channels each step, and decode audio frames
@@ -64,20 +64,20 @@ def log(level: str, msg: str):
 
 
 def seed_all(seed: int):
-    """Seed torch, CUDA, numpy, and Python RNG for reproducible runs.
+    """Seed torch, XPU, numpy, and Python RNG for reproducible runs.
 
     Matches the seeding strategy in server.py.
     """
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
+    if torch.xpu.is_available():
+        torch.xpu.manual_seed(seed)
+        torch.xpu.manual_seed_all(seed)
     import random
     import numpy as _np
     random.seed(seed)
     _np.random.seed(seed)
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = False
+    #torch.backends.cudnn.deterministic = False
+    #torch.backends.cudnn.benchmark = False
 
 
 def wrap_with_system_tags(text: str) -> str:
@@ -91,7 +91,7 @@ def wrap_with_system_tags(text: str) -> str:
 
 
 def warmup(mimi: MimiModel, other_mimi: MimiModel, lm_gen: LMGen, device: str, frame_size: int):
-    """Run a short warmup loop to initialize CUDA graphs and streaming state.
+    """Run a short warmup loop to initialize XPU graphs and streaming state.
 
     Replicates the same warmup behavior as server.py: zeros → encode → LMGen.step → decode.
     """
@@ -106,8 +106,8 @@ def warmup(mimi: MimiModel, other_mimi: MimiModel, lm_gen: LMGen, device: str, f
             # Decode agent audio channels to ensure decode graphs/states are primed
             _ = mimi.decode(tokens[:, 1:9])
             _ = other_mimi.decode(tokens[:, 1:9])
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
+    #if torch.xpu.is_available():
+    #    torch.xpu.synchronize()
 
 
 def decode_tokens_to_pcm(mimi: MimiModel, other_mimi: MimiModel, lm_gen: LMGen, tokens: torch.Tensor) -> np.ndarray:
@@ -375,7 +375,7 @@ def main():
         "--greedy", action="store_true", help="Disable sampling (greedy decoding)"
     )
     parser.add_argument(
-        "--device", type=str, default="cuda", help="Device on which to run, defaults to 'cuda'."
+        "--device", type=str, default="xpu", help="Device on which to run, defaults to 'xpu'."
     )
     parser.add_argument("--cpu-offload", action="store_true",
                         help="Offload LM model layers to CPU when GPU memory is insufficient. "
