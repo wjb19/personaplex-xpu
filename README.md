@@ -1,176 +1,130 @@
-# PersonaPlex: Voice and Role Control for Full Duplex Conversational Speech Models
+# Introduction
 
-[![Weights](https://img.shields.io/badge/🤗-Weights-yellow)](https://huggingface.co/nvidia/personaplex-7b-v1)
-[![Paper](https://img.shields.io/badge/📄-Paper-blue)](https://arxiv.org/abs/2602.06053)
-[![Demo](https://img.shields.io/badge/🎮-Demo-green)](https://research.nvidia.com/labs/adlr/personaplex/)
-[![Discord](https://img.shields.io/badge/Discord-Join-purple?logo=discord)](https://discord.gg/5jAXrrbwRb)
+This fork of personaplex allows for execution on Intel accelerators.
 
-PersonaPlex is a real-time, full-duplex speech-to-speech conversational model that enables persona control through text-based role prompts and audio-based voice conditioning. Trained on a combination of synthetic and real conversations, it produces natural, low-latency spoken interactions with a consistent persona. PersonaPlex is based on the [Moshi](https://arxiv.org/abs/2410.00037) architecture and weights.
+# Detail
 
-<p align="center">
-  <img src="assets/architecture_diagram.png" alt="PersonaPlex Model Architecture">
-  <br>
-  <em>PersonaPlex Architecture</em>
-</p>
+Before developing with OneAPI and Intel devices, it's important to make sure relevant drivers are installed and devices visible eg., via the xpu-smi command, output shown here from a system running Ubuntu 24.04 (server) after following the directions here https://dgpu-docs.intel.com/driver/installation-lts2.html :
 
-## Usage
-
-### Prerequisites
-
-Install the [Opus audio codec](https://github.com/xiph/opus) development library:
-```bash
-# Ubuntu/Debian
-sudo apt install libopus-dev
-
-# Fedora/RHEL
-sudo dnf install opus-devel
+```
+> xpu-smi discovery
 ```
 
-### Installation
+![image](images/xpu-smi.png)
 
-Download this repository and install with:
-```bash
-pip install moshi/.
+Make sure also that you’ve installed and activated a virtual environment for your python development eg., 
+
 ```
-
-Extra step for Blackwell based GPUs as suggested in (See https://github.com/NVIDIA/personaplex/issues/2):
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
+source ~/.venv/bin/activate
 ```
 
+Ensure that the required oneAPI components are installed, at the time of writing you can find details here : https://www.intel.com/content/www/us/en/developer/tools/oneapi/toolkits.html ; the objects in "Deep Learning Essentials" were sufficient for building pytorch with XPU support. 
 
-### Accept Model License
-Log in to your Huggingface account and accept the PersonaPlex model license [here](https://huggingface.co/nvidia/personaplex-7b-v1). <br>
-Then set up your Huggingface authentication:
-```bash
-export HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN>
+Make sure executables required for building pytorch are visible in your environment eg., 
+
 ```
-
-### Launch Server
-
-Launch server for live interaction (temporary SSL certs for https):
-```bash
-SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
+> source /opt/intel/oneapi/pti/latest/env/vars.sh 
+> source /opt/intel/oneapi/mkl/2025.3/env/vars.sh
+> source /opt/intel/oneapi/compiler/2025.3/env/vars.sh
 ```
 
-**CPU Offload:** If your GPU has insufficient memory, use the `--cpu-offload` flag to offload model layers to CPU. This requires the `accelerate` package (`pip install accelerate`):
-```bash
-SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR" --cpu-offload
+The following was my LD_LIBRARY_PATH before building:
+
+```
+> echo $LD_LIBRARY_PATH
+
+/opt/intel/oneapi/pti/0.16/lib:/opt/intel/oneapi/compiler/2025.3/opt/compiler/lib:/opt/intel/oneapi/compiler/2025.3/lib:/opt/intel/oneapi/mkl/2025.3/lib:/opt/intel/oneapi/pti/0.16/lib:/opt/intel/oneapi/umf/1.0/lib/
 ```
 
-Access the Web UI from a browser at `localhost:8998` if running locally, otherwise look for the access link printed by the script:
+Clone the pytorch repository: https://github.com/pytorch/pytorch and proceed to initialize third parties and the python environment:
+
 ```
-Access the Web UI directly at https://11.54.401.33:8998
+> cd pytorch
+> git submodule sync
+> git submodule update --init --recursive
+> pip install --group dev
 ```
 
-### Offline Evaluation
 
-For offline evaluation use the offline script that streams in an input wav file and produces an output wav file from the captured output stream. The output file will be the same duration as the input file.
+Thereafter, build and install (cmake is required):
 
-Add `--cpu-offload` to any command below if your GPU has insufficient memory (requires `accelerate` package). Or install cpu-only PyTorch for offline evaluation on pure CPU.
-
-**Assistant example:**
-```bash
-HF_TOKEN=<TOKEN> \
-python -m moshi.offline \
-  --voice-prompt "NATF2.pt" \
-  --input-wav "assets/test/input_assistant.wav" \
-  --seed 42424242 \
-  --output-wav "output.wav" \
-  --output-text "output.json"
+```
+> USE_XPU=1 make
+> export CMAKE_PREFIX_PATH="${VIRTUAL_ENV}:${CMAKE_PREFIX_PATH}"
+> python -m pip install --no-build-isolation -v -e .
 ```
 
-**Service example:**
-```bash
-HF_TOKEN=<TOKEN> \
-python -m moshi.offline \
-  --voice-prompt "NATM1.pt" \
-  --text-prompt "$(cat assets/test/prompt_service.txt)" \
-  --input-wav "assets/test/input_service.wav" \
-  --seed 42424242 \
-  --output-wav "output.wav" \
-  --output-text "output.json"
+This appears to install correctly in the virtual environment, however, I found I needed to make two symbolic links as well, so likely a problem with the wheel file:
+
+```
+> ln -s /path/to/pytorch/build/lib/ /path/to/pytorch/torch/lib
+> ln -s /path/to/pytorch/build/bin/ /path/to/pytorch/torch/bin
 ```
 
-## Voices
 
-PersonaPlex supports a wide range of voices; we pre-package embeddings for voices that sound more natural and conversational (NAT) and others that are more varied (VAR). The fixed set of voices are labeled:
+Personaplex is built around moshi, and the modifications to run on intel aren't much more complex than swapping CUDAGraph for XPUGraph calls. Calls with no analog in the xpu directory of pytorch were removed eg., cudnn specific calls.
+
+
+I found I needed to specify an explicit device when loading models (~ line 979 of moshi/moshi/models/lm.py):
+
 ```
-Natural(female): NATF0, NATF1, NATF2, NATF3
-Natural(male):   NATM0, NATM1, NATM2, NATM3
-Variety(female): VARF0, VARF1, VARF2, VARF3, VARF4
-Variety(male):   VARM0, VARM1, VARM2, VARM3, VARM4
-```
-
-## Prompting Guide
-
-The model is trained on synthetic conversations for a fixed assistant role and varying customer service roles.
-
-### Assistant Role
-
-The assistant role has the prompt:
-```
-You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.
+state = torch.load(path,map_location=torch.device("xpu"))
 ```
 
-Use this prompt for the QA assistant focused "User Interruption" evaluation category in [FullDuplexBench](https://arxiv.org/abs/2503.04721).
+I also modified moshi/moshi/modules/transformer.py to use a specific SDPBackend, else I received complaints that explicit synchronization was being called and in conflict graph construction steps:
 
-### Customer Service Roles
-
-The customer service roles support a variety of prompts. Here are some examples for prompting style reference:
 ```
-You work for CitySan Services which is a waste management and your name is Ayelen Lucero. Information: Verify customer name Omar Torres. Current schedule: every other week. Upcoming pickup: April 12th. Compost bin service available for $8/month add-on.
-```
-```
-You work for Jerusalem Shakshuka which is a restaurant and your name is Owen Foster. Information: There are two shakshuka options: Classic (poached eggs, $9.50) and Spicy (scrambled eggs with jalapenos, $10.25). Sides include warm pita ($2.50) and Israeli salad ($3). No combo offers. Available for drive-through until 9 PM.
-```
-```
-You work for AeroRentals Pro which is a drone rental company and your name is Tomaz Novak. Information: AeroRentals Pro has the following availability: PhoenixDrone X ($65/4 hours, $110/8 hours), and the premium SpectraDrone 9 ($95/4 hours, $160/8 hours). Deposit required: $150 for standard models, $300 for premium.
+with sdpa_kernel(SDPBackend.MATH):
+    x = F.scaled_dot_product_attention(q, k, v, attn_bias, dropout_p=0.0)
 ```
 
-### Casual Conversations
+Pytorch built and installed, I removed references to torch from the requirements.txt file(s) of personaplex, and proceeded with the installation you can find in the original README, namely (for ubuntu):
 
-The model is also trained on real conversations from the [Fisher English Corpus](https://catalog.ldc.upenn.edu/LDC2004T19) with LLM-labeled prompts for open-ended conversations. Here are some example prompts for casual conversations:
 ```
-You enjoy having a good conversation.
-```
-```
-You enjoy having a good conversation. Have a casual discussion about eating at home versus dining out.
-```
-```
-You enjoy having a good conversation. Have an empathetic discussion about the meaning of family amid uncertainty.
-```
-```
-You enjoy having a good conversation. Have a reflective conversation about career changes and feeling of home. You have lived in California for 21 years and consider San Francisco your home. You work as a teacher and have traveled a lot. You dislike meetings.
-```
-```
-You enjoy having a good conversation. Have a casual conversation about favorite foods and cooking experiences. You are David Green, a former baker now living in Boston. You enjoy cooking diverse international dishes and appreciate many ethnic restaurants.
+> sudo apt install libopus-dev
+> pip install moshi/.
 ```
 
-Use the prompt `You enjoy having a good conversation.` for the "Pause Handling", "Backchannel" and "Smooth Turn Taking" evaluation categories of FullDuplexBench.
+You will also need to follow the directions with regards to accepting the Nvidia license for the model at your huggingface account; once done and equipped with your token you are ready to run and serve up the interface ala:
 
-## Generalization
 
-Personaplex finetunes Moshi and benefits from the generalization capabilities of the underlying [Helium](https://kyutai.org/blog/2025-04-30-helium) LLM. Thanks to the broad training corpus of the backbone, we find that the model will respond plausibly to out-of-distribution prompts and lead to unexpected or fun conversations. We encourage experimentation with different prompts to test the model's emergent ability to handle scenarios outside its training distribution. As an inspiration we feature the following astronaut prompt in the WebUI:
 ```
-You enjoy having a good conversation. Have a technical discussion about fixing a reactor core on a spaceship to Mars. You are an astronaut on a Mars mission. Your name is Alex. You are already dealing with a reactor core meltdown on a Mars mission. Several ship systems are failing, and continued instability will lead to catastrophic failure. You explain what is happening and you urgently ask for help thinking through how to stabilize the reactor.
+$ HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN> SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
 ```
 
-## License
+The output should appear as below, and user interface available on the local network:
 
-The present code is provided under the MIT license. The weights for the models are released under the NVIDIA Open Model license.
-
-## Citation
-
-If you use PersonaPlex in your research, please cite our paper:
-```bibtex
-@misc{roy2026personaplexvoicerolecontrol,
-      title={PersonaPlex: Voice and Role Control for Full Duplex Conversational Speech Models}, 
-      author={Rajarshi Roy and Jonathan Raiman and Sang-gil Lee and Teodor-Dumitru Ene and Robert Kirby and Sungwon Kim and Jaehyeon Kim and Bryan Catanzaro},
-      year={2026},
-      eprint={2602.06053},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2602.06053}, 
-}
 ```
+2026-04-23 20:22:05,009 - __main__ - INFO - retrieving voice prompts
+2026-04-23 20:22:05,089 - __main__ - INFO - voice_prompt_dir = /home/bill/.cache/huggingface/hub/models--nvidia--personaplex-7b-v1/snapshots/fdaf4090a61cb315c138a1faee287ffd6c716309/voices
+2026-04-23 20:22:05,089 - __main__ - INFO - retrieving the static content
+2026-04-23 20:22:05,140 - __main__ - INFO - static_path = /home/bill/.cache/huggingface/hub/models--nvidia--personaplex-7b-v1/snapshots/fdaf4090a61cb315c138a1faee287ffd6c716309/dist
+2026-04-23 20:22:05,240 - __main__ - INFO - loading mimi
+2026-04-23 20:22:06,109 - __main__ - INFO - mimi loaded
+2026-04-23 20:22:06,211 - __main__ - INFO - loading moshi
+2026-04-23 20:22:12,651 - __main__ - INFO - moshi loaded
+2026-04-23 20:22:12,709 - __main__ - INFO - warming up the model
+2026-04-23 20:22:25,556 - __main__ - INFO - serving static content from /home/bill/.cache/huggingface/hub/models--nvidia--personaplex-7b-v1/snapshots/fdaf4090a61cb315c138a1faee287ffd6c716309/dist
+2026-04-23 20:22:25,556 - moshi.utils.connection - INFO - [auto-cert] mkcert detected. Ensuring local CA installed...
+2026-04-23 20:22:25,581 - moshi.utils.connection - INFO - [auto-cert] Generating certificate for localhost and 192.168.1.7...
+2026-04-23 20:22:25,706 - moshi.utils.connection - INFO - [auto-cert] Certificate generated.
+2026-04-23 20:22:25,710 - __main__ - INFO - Access the Web UI directly at https://192.168.1.7:8998
+======== Running on https://0.0.0.0:8998 ========
+(Press CTRL+C to quit)
+[2P8H] Incoming connection from 192.168.1.6:59745
+[2P8H] accepted connection
+[2P8H] text prompt: You enjoy having a good conversation. Have a technical discussion about fixing a reactor core on a spaceship to Mars. You are an astronaut on a Mars mission. Your name is Alex. You are already dealing with a reactor core meltdown on a Mars mission. Several ship systems are failing, and continued instability will lead to catastrophic failure. You explain what is happening and you urgently ask for help thinking through how to stabilize the reactor.
+[2P8H] voice prompt: /home/bill/.cache/huggingface/hub/models--nvidia--personaplex-7b-v1/snapshots/fdaf4090a61cb315c138a1faee287ffd6c716309/voices/VARM3.pt (requested: /home/bill/.cache/huggingface/hub/models--nvidia--personaplex-7b-v1/snapshots/fdaf4090a61cb315c138a1faee287ffd6c716309/voices/VARM3.pt)
+Done loading audio silence.
+Done loading text prompt.
+Done loading audio silence.
+[2P8H] done with system prompts
+[2P8H] sent handshake bytes
+[2P8H] connection closed
+[2P8H] session closed
+[2P8H] done with connection
+```
+
+
+![image](images/pp-ui.png)
+
